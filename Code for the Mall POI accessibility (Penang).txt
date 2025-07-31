@@ -1,0 +1,111 @@
+# Load required libraries
+library(sf)
+library(ggplot2)
+library(viridis)
+library(dplyr)
+
+# Load GeoJSON files
+bus_stops <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/stops points.geojson")
+route <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Route_of_stops.geojson")
+mall <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Malls_new_data.geojson")
+boundary <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Johor Bahru Boundary.shp")
+
+# Walking speed in meters per minute
+walking_speed <- 83.33
+
+# Calculate centroids of mall polygons
+mall_centroids <- st_geometry(mall) %>%
+  st_centroid() %>%
+  st_as_sf() %>%
+  mutate(
+    longitude = st_coordinates(.)[, 1],
+    latitude = st_coordinates(.)[, 2]
+  )
+
+# Calculate travel time from bus stops to mall centroids
+bus_stops$travel_time_mall <- apply(st_distance(bus_stops, mall_centroids), 1, min) / walking_speed
+
+# Group travel times into intervals
+bus_stops <- bus_stops %>%
+  mutate(
+    travel_time_mall_group = case_when(
+      travel_time_mall <= 15 ~ "15 min",
+      travel_time_mall <= 30 ~ "30 min",
+      travel_time_mall <= 45 ~ "45 min",
+      travel_time_mall <= 60 ~ "60 min",
+      TRUE ~ ">60 min"
+    )
+  )
+
+# Convert travel time groups to factors
+bus_stops$travel_time_mall_group <- factor(
+  bus_stops$travel_time_mall_group,
+  levels = c("15 min", "30 min", "45 min", "60 min", ">60 min")
+)
+
+# Extract coordinates for plotting
+bus_stops_coords <- bus_stops %>%
+  filter(st_geometry_type(.) == "POINT") %>%
+  mutate(
+    longitude = st_coordinates(.)[, 1],
+    latitude = st_coordinates(.)[, 2]
+  )
+
+# Plot heatmap with legends on the left
+plot <- ggplot() +
+  geom_sf(data = st_as_sf(boundary), fill = NA, color = "black", linetype = "solid", linewidth = 0.5) +
+  geom_point(
+    data = bus_stops_coords,
+    aes(
+      x = longitude,
+      y = latitude,
+      color = travel_time_mall_group
+    ),
+    size = 2, alpha = 1
+  ) +
+  geom_point(
+    data = mall_centroids,
+    aes(x = longitude, y = latitude, shape = "Mall"),
+    color = "red", size = 3
+  ) +
+  scale_color_manual(
+    values = c(
+      "15 min" = viridis::viridis(5, direction = -1)[1],
+      "30 min" = viridis::viridis(5, direction = -1)[2],
+      "45 min" = viridis::viridis(5, direction = -1)[3],
+      "60 min" = viridis::viridis(5, direction = -1)[4],
+      ">60 min" = viridis::viridis(5, direction = -1)[5]
+    ),
+    name = "Travel Time (min)"
+  ) +
+  scale_shape_manual(
+    values = c("Mall" = 17),
+    name = "Legend"
+  ) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.box = "vertical",
+    legend.box.just = "right",
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
+    legend.spacing.y = unit(0.3, "cm"),
+    axis.line.x = element_line(color = "black", linewidth = 0.5),
+    axis.line.y = element_line(color = "black", linewidth = 0.5),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  ) +
+  guides(
+    color = guide_legend(order = 1, title.position = "top"),
+    shape = guide_legend(order = 2, title.position = "top")
+  )
+
+# Save the figure
+ggsave(
+  filename = "C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Travel_Time_Mall_Penang.png",
+  plot = plot,
+  width = 14, height = 10, dpi = 1000
+)
