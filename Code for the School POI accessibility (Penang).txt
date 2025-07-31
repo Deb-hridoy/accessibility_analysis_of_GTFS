@@ -1,0 +1,116 @@
+# Load required libraries
+library(sf)           # For handling spatial data
+library(ggplot2)      # For plotting
+library(viridis)      # For Viridis color scale
+library(dplyr)        # For data manipulation
+
+# Load GeoJSON files for bus stops, routes, schools, and boundary
+bus_stops <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/stops points.geojson")
+route <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Route_of_stops.geojson")
+schools <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/schools_valid_point.geojson")
+boundary <- st_read("C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Johor Bahru Boundary.shp")
+
+# Define walking speed in meters per minute (5 km/h = 5000 meters per hour = 83.33 meters per minute)
+walking_speed <- 83.33
+
+# Calculate travel time from bus stops to schools (in minutes)
+bus_stops$travel_time_school <- apply(st_distance(bus_stops, schools), 1, min) / walking_speed
+
+# Group travel times into intervals: 0-15, 15-30, 30-45, and 45-60 minutes
+bus_stops <- bus_stops %>%
+  mutate(
+    travel_time_school_group = case_when(
+      travel_time_school <= 15 ~ "15 min",
+      travel_time_school <= 30 ~ "30 min",
+      travel_time_school <= 45 ~ "45 min",
+      travel_time_school <= 60 ~ "60 min",
+      TRUE ~ ">60 min"  # Group all >60 min as >60
+    )
+  )
+
+# Convert the travel_time_school_group column to a factor to ensure proper ordering in the legend
+bus_stops$travel_time_school_group <- factor(
+  bus_stops$travel_time_school_group,
+  levels = c("15 min", "30 min", "45 min", "60 min", ">60 min")
+)
+
+# Extract coordinates for bus stops and schools
+bus_stops_coords <- bus_stops %>%
+  st_as_sf() %>%
+  mutate(
+    longitude = st_coordinates(.)[, 1],
+    latitude = st_coordinates(.)[, 2]
+  )
+
+schools_coords <- schools %>%
+  st_as_sf() %>%
+  mutate(
+    longitude = st_coordinates(.)[, 1],
+    latitude = st_coordinates(.)[, 2]
+  )
+
+# Extract boundary as a data frame for plotting
+boundary_coords <- st_as_sf(boundary)
+
+# Create the plot
+plot <- ggplot() +
+  # Plot the boundary
+  geom_sf(data = boundary_coords, fill = NA, color = "black", linetype = "solid", linewidth = 0.5) +
+  # Plot bus stops with reversed Viridis color gradient based on travel time to school
+  geom_point(
+    data = bus_stops_coords,
+    aes(
+      x = longitude,
+      y = latitude,
+      color = travel_time_school_group  # Color based on travel time group
+    ),
+    size = 2, alpha = 1
+  ) +
+  # Plot schools with a distinct legend
+  geom_point(
+    data = schools_coords,
+    aes(x = longitude, y = latitude, shape = "School"),
+    color = "red", size = 3
+  ) +
+  # Define the manual color scale for travel times
+  scale_color_manual(
+    values = c(
+      "15 min" = viridis::viridis(5, direction = -1)[1],
+      "30 min" = viridis::viridis(5, direction = -1)[2],
+      "45 min" = viridis::viridis(5, direction = -1)[3],
+      "60 min" = viridis::viridis(5, direction = -1)[4],
+      ">60 min" = viridis::viridis(5, direction = -1)[5]
+    ),
+    name = "Travel Time (min)",   # Legend title for the color scale
+    labels = c("15 min", "30 min", "45 min", "60 min", ">60 min")
+  ) +
+  # Define manual shape scale for schools
+  scale_shape_manual(
+    values = c("School" = 17),
+    name = "Legend",             # Legend title for schools
+    labels = c("School")         # Label for schools
+  ) +
+  # Add labels and title
+  labs(
+    x = "Longitude",  # X-axis label
+    y = "Latitude"    # Y-axis label
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",         # Position legend on the right
+    legend.title = element_text(size = 14),  # Adjust legend title size
+    legend.text = element_text(size = 14),    # Adjust legend text size
+    axis.title = element_text(size = 14),    # Adjust axis title size
+    axis.text = element_text(size = 14),     # Adjust axis tick size
+    axis.line.x = element_line(color = "black", linewidth = 0.5), # Add X-axis line 
+    axis.line.y = element_line(color = "black", linewidth = 0.5), # Add Y-axis line
+    panel.background = element_rect(fill = "white", color = NA),      # Set background to white
+    plot.background = element_rect(fill = "white", color = NA)        # Set plot background to white
+  )
+
+# Save the figure as a high-resolution image (400 DPI)
+ggsave(
+  filename = "C:/GTFS_Paper/GTFS_Materials/Johor Bahru POI accessibility Data/Travel_Time_to_Schools_Johor.png",
+  plot = plot,
+  width = 14, height = 10, dpi = 1000
+)
